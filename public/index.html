@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<!--
+  8 Américain - Copyright (C) 2026 regis57
+  Licensed under the GNU Affero General Public License v3.0 or later.
+  Source code: https://github.com/regis57/8americain
+-->
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8 Américain</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root { --card-w: 75px; --card-h: 110px; --card-font: 1.4rem; }
+        @media (max-width: 768px) { :root { --card-w: 55px; --card-h: 80px; --card-font: 1.1rem; } }
+        @media (max-width: 480px) { :root { --card-w: 44px; --card-h: 64px; --card-font: 0.9rem; } }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+        body { background-color: #27ae60; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        
+        .burger-btn { position: fixed; top: 15px; right: 15px; width: 40px; height: 35px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; z-index: 200; background: rgba(0,0,0,0.5); padding: 8px; border-radius: 6px; }
+        .burger-btn div { width: 100%; height: 4px; background-color: white; border-radius: 2px; }
+        
+        .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 100; flex-direction: column; align-items: center; justify-content: center; gap: 15px; text-align: center; padding: 20px;}
+        .overlay h2, .overlay h3 { margin-bottom: 15px; }
+
+        .lobby-container { background: white; color: #2c3e50; padding: 30px; border-radius: 12px; width: 90%; max-width: 450px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 10; }
+        .lobby-container input { width: 100%; padding: 12px; margin-bottom: 15px; border: 2px solid #ddd; border-radius: 6px; font-size: 1rem; text-align: center; }
+        
+        .btn { width: 100%; max-width: 280px; padding: 12px; margin: 8px 0; border: none; border-radius: 6px; font-size: 1.05rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-primary { background: #27ae60; color: white; }
+        .btn-secondary { background: #2980b9; color: white; }
+        .btn-danger { background: #c0392b; color: white; }
+        .btn:hover { filter: brightness(1.1); }
+
+        #game-screen { display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; padding: 10px; padding-top: 50px; }
+        #status-board { background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 8px; width: 100%; max-width: 500px; margin-bottom: 10px; text-align: center; font-weight: bold; }
+        
+        .game-grid { display: grid; grid-template-columns: minmax(60px, auto) 1fr minmax(60px, auto); grid-template-rows: auto 1fr auto; width: 100%; max-width: 1000px; height: 75vh; gap: 10px; align-items: center; }
+        .player-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px; border-radius: 10px; background: rgba(0, 0, 0, 0.15); width: 100%; }
+        .top-zone { grid-column: 2 / 3; grid-row: 1 / 2; } .left-zone { grid-column: 1 / 2; grid-row: 2 / 3; } .center-pile { grid-column: 2 / 3; grid-row: 2 / 3; } .right-zone { grid-column: 3 / 4; grid-row: 2 / 3; } .bottom-zone { grid-column: 2 / 3; grid-row: 3 / 4; }
+        
+        .player-info { font-size: 0.85rem; text-shadow: 1px 1px 2px black; text-align: center; margin-bottom: 4px; background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 4px; }
+        .score-badge { color: #f1c40f; font-weight: bold; }
+        
+        .hand { display: flex; justify-content: center; align-items: center; width: 100%; min-height: calc(var(--card-h) + 10px); }
+        .horizontal-hand .card { margin-left: -25px; } .horizontal-hand .card:first-child { margin-left: 0; }
+        .vertical-hand { flex-direction: column; } .vertical-hand .card { margin-top: -55px; } .vertical-hand .card:first-child { margin-top: 0; }
+        
+        .card { width: var(--card-w); height: var(--card-h); background: white; border-radius: 6px; border: 1.5px solid #ccc; display: flex; justify-content: center; align-items: center; font-size: var(--card-font); font-weight: bold; cursor: pointer; box-shadow: 0 3px 6px rgba(0,0,0,0.2); }
+        .card.red { color: #e74c3c; } .card.black { color: #2c3e50; }
+        .card.hidden { background: #2980b9; background-image: repeating-linear-gradient(45deg, transparent, transparent 6px, #3498db 6px, #3498db 12px); border-color: #fff; cursor: default; }
+        #player-0 .card:hover { transform: translateY(-12px); z-index: 10; }
+
+        .center-pile { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .piles { display: flex; gap: 12px; }
+        .action-btn-game, .discard { width: var(--card-w); height: var(--card-h); border-radius: 6px; display: flex; justify-content: center; align-items: center; font-size: calc(var(--card-font) * 0.7); font-weight: bold; background: white; }
+        .action-btn-game { background: #2980b9; color: white; cursor: pointer; border: 1px solid white; }
+        .active-turn { border: 2px solid #f1c40f; background: rgba(241, 196, 15, 0.15); }
+
+        .score-table { width: 100%; background: white; color: black; border-radius: 8px; overflow: hidden; margin-bottom: 20px; max-width: 600px; text-align: left; border-collapse: collapse; }
+        .score-table th, .score-table td { padding: 12px; border-bottom: 1px solid #ddd; }
+        .score-table th { background: #eee; }
+        .card-mini { display: inline-block; padding: 2px 5px; margin: 2px; border-radius: 4px; background: #eee; font-size: 0.9rem; font-weight: bold; }
+        .card-mini.red { color: #e74c3c; border: 1px solid #e74c3c; }
+        .card-mini.black { color: #2c3e50; border: 1px solid #2c3e50; }
+    </style>
+</head>
+<body>
+
+    <div class="burger-btn" onclick="toggleOverlay('burger-overlay')">
+        <div></div><div></div><div></div>
+    </div>
+
+    <div class="overlay" id="burger-overlay">
+        <h3 style="color:white; font-size: 2rem;">Menu principal</h3>
+        <button class="btn btn-danger" onclick="location.reload()">Quitter vers l'accueil</button>
+        <button class="btn btn-secondary" onclick="toggleOverlay('burger-overlay')">Reprendre le jeu</button>
+    </div>
+
+    <div class="overlay" id="suit-picker-overlay">
+        <h2 style="color:white;">Choisissez la couleur de votre 8</h2>
+        <div style="display:flex; gap:15px;">
+            <div class="card black" onclick="submitCardWithSuit('♠')">♠</div>
+            <div class="card red" onclick="submitCardWithSuit('♥')">♥</div>
+            <div class="card black" onclick="submitCardWithSuit('♣')">♣</div>
+            <div class="card red" onclick="submitCardWithSuit('♦')">♦</div>
+        </div>
+    </div>
+
+    <div class="overlay" id="round-summary-overlay">
+        <h2 style="color: #f1c40f; font-size: 2rem;">Fin de la manche !</h2>
+        <div id="round-table-container"></div>
+        <button class="btn btn-primary" onclick="requestNextRound()">Commencer la manche suivante</button>
+    </div>
+
+    <div class="overlay" id="match-summary-overlay">
+        <h1 style="color: #e74c3c; font-size: 2.5rem; text-transform: uppercase;">La limite de 200 points est atteinte</h1>
+        <h2 id="match-winner-text" style="color: #2ecc71;"></h2>
+        <div id="match-table-container"></div>
+        <div style="display:flex; gap: 15px; width: 100%; max-width: 500px; justify-content: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="restartMatch()">Rejouer une partie complète</button>
+            <button class="btn btn-danger" onclick="location.reload()">Retour à l'accueil</button>
+        </div>
+    </div>
+
+    <div class="lobby-container" id="menu-screen">
+        <h2 style="color:#27ae60;">8 Américain</h2>
+        <input type="text" id="username-input" placeholder="Votre prénom..." value="Joueur">
+        <button class="btn btn-primary" onclick="selectMode('solo')">Mode Solo</button>
+        <button class="btn btn-secondary" onclick="selectMode('online')">Mode En Ligne</button>
+        <p style="margin:14px 0 0;font-size:0.75rem;"><a href="https://github.com/regis57/8americain" target="_blank" rel="noopener" style="color:#777;">Code source (AGPL-3.0)</a></p>
+    </div>
+
+    <div class="lobby-container" id="matchmaking-screen" style="display:none;">
+        <h2 style="color:#2980b9;">Recherche de joueurs...</h2>
+        <h1 id="countdown-display" style="font-size: 3.5rem; color: #e74c3c; margin: 15px 0;">60</h1>
+        <p style="margin-bottom: 15px;">Attente : <span id="lobby-players-list"></span></p>
+        <button class="btn btn-danger" onclick="socket.emit('forceStartWithBots')">Lancer immédiatement (IA)</button>
+    </div>
+
+    <div id="game-screen">
+        <div id="status-board"><span id="status-msg">Préparation...</span></div>
+        <div class="game-grid">
+            <div class="player-zone top-zone" id="zone-2">
+                <div class="player-info"><span id="name-2">...</span> (<span id="count-2">0</span>) <br><span class="score-badge">Score: <span id="score-2">0</span></span></div>
+                <div id="player-2" class="hand horizontal-hand"></div>
+            </div>
+            <div class="player-zone left-zone" id="zone-1">
+                <div class="player-info"><span id="name-1">...</span> (<span id="count-1">0</span>) <br><span class="score-badge">Score: <span id="score-1">0</span></span></div>
+                <div id="player-1" class="hand vertical-hand"></div>
+            </div>
+            <div class="center-pile">
+                <div id="active-suit-display" style="font-weight:bold;">Couleur : </div>
+                <div class="piles">
+                    <div class="action-btn-game" onclick="drawCard()">Pioche</div>
+                    <div class="discard" id="discard-pile"></div>
+                </div>
+            </div>
+            <div class="player-zone right-zone" id="zone-3">
+                <div class="player-info"><span id="name-3">...</span> (<span id="count-3">0</span>) <br><span class="score-badge">Score: <span id="score-3">0</span></span></div>
+                <div id="player-3" class="hand vertical-hand"></div>
+            </div>
+            <div class="player-zone bottom-zone" id="zone-0">
+                <div class="player-info"><span id="name-0">...</span> (<span id="count-0">0</span>) <br><span class="score-badge">Score: <span id="score-0">0</span></span></div>
+                <div id="player-0" class="hand horizontal-hand"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentRoomId = null;
+        let globalName = "";
+        let pendingCardIndex = -1;
+
+        function toggleOverlay(id) {
+            const el = document.getElementById(id);
+            el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
+        }
+
+        function getCardPointsLocal(value) {
+            switch(value) {
+                case '8': return 32; case '7': return 14; case 'A': return 11;
+                case '10': return 10; case '9': return 9; case 'R': return 4;
+                case 'D': return 3; case 'V': return 2; default: return parseInt(value) || 0;
+            }
+        }
+
+        function selectMode(mode) {
+            let name = document.getElementById('username-input').value.trim();
+            if(!name) return alert("Veuillez entrer votre prénom !");
+            globalName = name;
+            document.getElementById('menu-screen').style.display = 'none';
+            if(mode === 'solo') socket.emit('startSoloGame', globalName);
+            else { document.getElementById('matchmaking-screen').style.display = 'block'; socket.emit('joinMatchmaking', globalName); }
+        }
+
+        function drawCard() { if(currentRoomId) socket.emit('drawCard', currentRoomId); }
+        function requestNextRound() { document.getElementById('round-summary-overlay').style.display = 'none'; socket.emit('nextRound', currentRoomId); }
+        function restartMatch() { document.getElementById('match-summary-overlay').style.display = 'none'; socket.emit('restartMatch', currentRoomId); }
+
+        socket.on('matchmakingStatus', (data) => {
+            document.getElementById('countdown-display').innerText = data.countdown;
+            document.getElementById('lobby-players-list').innerText = data.players.join(', ');
+        });
+
+        socket.on('gameStarted', (roomId) => {
+            currentRoomId = roomId;
+            document.getElementById('matchmaking-screen').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'flex';
+        });
+
+        socket.on('autoDrawingMsg', () => {
+            document.getElementById('status-msg').innerHTML = "<em>Aucune carte jouable. Pioche automatique en cours...</em>";
+        });
+
+        function submitCardWithSuit(suit) {
+            document.getElementById('suit-picker-overlay').style.display = 'none';
+            socket.emit('playCard', { roomId: currentRoomId, cardIndex: pendingCardIndex, chosenSuit: suit });
+            pendingCardIndex = -1;
+        }
+
+        socket.on('gameState', (data) => {
+            const discardEl = document.getElementById('discard-pile');
+            discardEl.className = `discard card ${data.discardTop.color}`;
+            discardEl.innerHTML = `${data.discardTop.value}<br>${data.discardTop.suit}`;
+            document.getElementById('active-suit-display').innerText = `Couleur : ${data.activeSuit}`;
+
+            let offset = data.myIndex;
+            document.getElementById('status-msg').innerText = `Tour de : ${data.playerNames[data.currentTurn]}`;
+
+            for(let i = 0; i < 4; i++) {
+                let absoluteIndex = (i + offset) % 4;
+                let UIIndex = i; 
+
+                document.getElementById(`name-${UIIndex}`).innerText = data.playerNames[absoluteIndex];
+                document.getElementById(`count-${UIIndex}`).innerText = data.allPlayersCardsCount[absoluteIndex];
+                document.getElementById(`score-${UIIndex}`).innerText = data.allPlayersScores[absoluteIndex];
+                
+                document.getElementById(`zone-${UIIndex}`).classList.remove('active-turn');
+                if(absoluteIndex === data.currentTurn) document.getElementById(`zone-${UIIndex}`).classList.add('active-turn');
+
+                const handEl = document.getElementById(`player-${UIIndex}`);
+                handEl.innerHTML = '';
+
+                if(UIIndex === 0) { 
+                    data.hand.forEach((card, cardIdx) => {
+                        const cardEl = document.createElement('div');
+                        cardEl.className = `card ${card.color}`;
+                        cardEl.innerHTML = `${card.value}<br>${card.suit}`;
+                        cardEl.onclick = () => {
+                            if(data.currentTurn === data.myIndex) {
+                                if(card.value === '8') {
+                                    if(data.discardTop.value === '8') return alert("Impossible de poser un 8 sur un autre 8.");
+                                    pendingCardIndex = cardIdx;
+                                    document.getElementById('suit-picker-overlay').style.display = 'flex';
+                                } else {
+                                    if(card.suit === data.activeSuit || card.value === data.discardTop.value) {
+                                        socket.emit('playCard', { roomId: currentRoomId, cardIndex: cardIdx });
+                                    }
+                                }
+                            }
+                        };
+                        handEl.appendChild(cardEl);
+                    });
+                } else { 
+                    let count = data.allPlayersCardsCount[absoluteIndex];
+                    for(let c=0; c<count; c++) {
+                        const cardEl = document.createElement('div'); cardEl.className = `card hidden`; handEl.appendChild(cardEl);
+                    }
+                }
+            }
+        });
+
+        function renderTable(players, isMatchEnd) {
+            let html = `<table class="score-table"><tr><th>Joueur</th>${!isMatchEnd ? '<th>Cartes Restantes</th><th>Points Manche</th>' : ''}<th>Score Total</th></tr>`;
+            players.forEach(p => {
+                let cardsHtml = '';
+                let roundPts = 0;
+                if (!isMatchEnd) {
+                    if (p.cards.length === 0) cardsHtml = '<em>A gagné la manche</em>';
+                    else {
+                        p.cards.forEach(c => { 
+                            cardsHtml += `<span class="card-mini ${c.color}">${c.value}${c.suit}</span> `; 
+                            roundPts += getCardPointsLocal(c.value);
+                        });
+                    }
+                }
+                html += `<tr>
+                    <td><b>${p.name}</b></td>
+                    ${!isMatchEnd ? `<td>${cardsHtml}</td><td style="color:#e74c3c;">+${roundPts}</td>` : ''}
+                    <td style="font-weight:bold; font-size:1.2rem;">${p.score} pts</td>
+                </tr>`;
+            });
+            html += `</table>`;
+            return html;
+        }
+
+        socket.on('roundEnd', (data) => {
+            document.getElementById('round-table-container').innerHTML = renderTable(data.players, false);
+            document.getElementById('round-summary-overlay').style.display = 'flex';
+        });
+
+        socket.on('matchEnd', (data) => {
+            document.getElementById('match-winner-text').innerText = `🏆 Grand Vainqueur : ${data.winner.name} 🏆`;
+            document.getElementById('match-table-container').innerHTML = renderTable(data.players, true);
+            document.getElementById('match-summary-overlay').style.display = 'flex';
+        });
+
+    </script>
+</body>
+</html>
